@@ -150,7 +150,7 @@ jupyter nbconvert --to script consumer.ipynb
 ## 🙋‍♂️ Author
 
 **Archit Gupta**  
-📧 [Email](mailto:your-email@example.com) | 🌐 [LinkedIn](https://www.linkedin.com/in/architgupta280/)  
+📧 [Email](mailto:garchit1999@gmail.com) | 🌐 [LinkedIn](www.linkedin.com/in/archit-gupta-23ab7b1a3)  
 🚀 Built with love for real-time data and clean dashboards.
 
 ---
