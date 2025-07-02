@@ -24,8 +24,9 @@ weather-dashboard/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
+```
 
-⚙️ Setup Instructions
+##⚙️ Setup Instructions
 # Clone the repo
 git clone https://github.com/architgupta280/Weather-Data-Dashboard.git
 cd Weather-Data-Dashboard
