@@ -1,0 +1,6 @@
+dash
+kafka-python
+pyspark
+pandas
+requests
+python-dotenv

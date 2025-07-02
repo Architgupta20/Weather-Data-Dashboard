@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.env
+venv/
+weather_data.csv
+.ipynb_checkpoints/
+.DS_Store
