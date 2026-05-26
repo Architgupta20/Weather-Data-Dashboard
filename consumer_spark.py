@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+import pyspark
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -42,11 +44,17 @@ WEATHER_SCHEMA = StructType(
 
 
 def create_spark() -> SparkSession:
+    spark_version = pyspark.__version__
+    kafka_package = (
+        f"org.apache.spark:spark-sql-kafka-0-10_2.12:{spark_version},"
+        f"org.apache.spark:spark-token-provider-kafka-0-10_2.12:{spark_version}"
+    )
     return (
         SparkSession.builder.appName(SPARK_APP_NAME)
         .master("local[*]")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "4")
+        .config("spark.jars.packages", kafka_package)
         .getOrCreate()
     )
 
@@ -75,11 +83,18 @@ def process_batch(batch_df: DataFrame, batch_id: int) -> None:
     if batch_df.isEmpty():
         return
 
-    batch_pdf = batch_df.toPandas()
+    rows = batch_df.collect()
+    if not rows:
+        return
+    batch_pdf = pd.DataFrame([row.asDict() for row in rows])
+    batch_pdf = batch_pdf.drop_duplicates(subset=["city", "timestamp"], keep="last")
     historical = load_events()
     alerts = detect_anomalies(batch_pdf, historical)
 
-    enriched = batch_df.withColumn("event_date", F.to_date("event_time"))
+    enriched = (
+        batch_df.withColumn("event_date", F.to_date("event_time"))
+        .dropDuplicates(["city", "timestamp"])
+    )
     (
         enriched.write.mode("append")
         .partitionBy("city", "event_date")

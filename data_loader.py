@@ -23,6 +23,10 @@ def load_events(limit: int | None = None) -> pd.DataFrame:
     if events.empty:
         return events
 
+    # Drop duplicate Kafka/Spark writes (same city + timestamp)
+    if {"city", "timestamp"}.issubset(events.columns):
+        events = events.drop_duplicates(subset=["city", "timestamp"], keep="last")
+
     events = events.sort_values("timestamp")
     if limit:
         events = events.tail(limit)
