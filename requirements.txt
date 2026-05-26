@@ -1,6 +1,6 @@
-dash
+streamlit
+plotly
 kafka-python
-pyspark
 pandas
 requests
 python-dotenv
