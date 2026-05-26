@@ -1,6 +1,6 @@
-# Real-Time Weather Data Analytics Dashboard
+# Real-Time Weather Intelligence Platform
 
-A real-time weather analytics pipeline that fetches live data from the **OpenWeatherMap API**, streams it through **Apache Kafka**, batches and stores it with **pandas**, and visualizes insights in a **Streamlit** dashboard with **Plotly** charts.
+A real-time weather analytics pipeline that ingests live **OpenWeatherMap** data through **Apache Kafka**, processes it with **Spark Structured Streaming** into a **Parquet data lake**, detects **anomalies** against rolling baselines, sends **Slack alerts**, and visualizes insights in a **Streamlit** dashboard.
 
 **Repository:** [github.com/Architgupta20/Weather-Data-Dashboard](https://github.com/Architgupta20/Weather-Data-Dashboard)
 
@@ -12,13 +12,20 @@ A real-time weather analytics pipeline that fetches live data from the **OpenWea
 OpenWeatherMap API
         │
         ▼
-  producer.ipynb  ──►  Kafka (topic: weather_data)
-                              │
-                              ▼
-                      consumer.ipynb  ──►  weather_data.csv
-                                              │
-                                              ▼
-                                    dashboard.py (Streamlit)
+   producer.py  ──►  Kafka (topic: weather_data)
+                           │
+                           ▼
+              consumer_spark.py (Spark Structured Streaming)
+                     │                │
+                     ▼                ▼
+         data/weather/events/   data/weather/aggregates/
+           (Parquet, by city)     (5-min window stats)
+                     │
+                     ▼
+           anomaly_detector + Slack alerts
+                     │
+                     ▼
+              dashboard.py (Streamlit)
 ```
 
 ---
@@ -26,10 +33,12 @@ OpenWeatherMap API
 ## Features
 
 - Live weather data for 10 global cities
-- Kafka producer/consumer streaming pipeline
-- Batch writes to CSV (10 records per batch)
-- Auto-updating Streamlit dashboard with metrics and charts
-- API keys loaded from `.env` (not committed to git)
+- Kafka producer and Spark Structured Streaming consumer
+- Parquet lake storage partitioned by city and date
+- 5-minute windowed aggregates (avg temp, humidity, wind)
+- Rolling-baseline anomaly detection (z-score + absolute thresholds)
+- Optional Slack notifications with cooldown deduplication
+- Streamlit dashboard with **Dashboard**, **Alerts**, and **Aggregates** tabs
 
 ---
 
@@ -39,102 +48,79 @@ OpenWeatherMap API
 |-------|------------|
 | Language | Python |
 | Data source | OpenWeatherMap API |
-| Messaging | Apache Kafka (`kafka-python`) |
-| Processing | pandas |
+| Messaging | Apache Kafka |
+| Stream processing | Apache Spark (Structured Streaming) |
+| Storage | Parquet (PyArrow) |
+| Analytics | pandas, custom anomaly detection |
 | Visualization | Streamlit, Plotly |
+| Alerts | Slack incoming webhooks (optional) |
 | Config | python-dotenv |
-
----
-
-## Cities Tracked
-
-New York, London, Tokyo, Delhi, Paris, Berlin, Sydney, Toronto, Dubai, Singapore
-
-*(Edit the `CITIES` list in `producer.ipynb` to customize.)*
 
 ---
 
 ## Project Structure
 
 ```text
-├── producer.ipynb      # Fetches weather data and publishes to Kafka
-├── consumer.ipynb      # Consumes Kafka messages and appends batches to CSV
-├── dashboard.py        # Streamlit app for live visualization
-├── requirements.txt    # Python dependencies
-├── .env.example        # Environment variable template (copy to .env)
-├── .gitignore
+├── producer.py           # Publishes live weather records to Kafka
+├── consumer_spark.py     # Spark streaming → Parquet + aggregates + alerts
+├── dashboard.py          # Streamlit UI (events, alerts, aggregates)
+├── anomaly_detector.py   # Rolling-baseline + threshold anomaly rules
+├── alerts.py             # Alert persistence + Slack notifications
+├── data_loader.py        # Parquet loaders for dashboard
+├── config.py             # Paths and environment configuration
+├── requirements.txt
+├── .env.example
 └── README.md
 ```
 
-`weather_data.csv` is created at runtime by the consumer and is gitignored.
+Runtime data is written under `data/` (gitignored).
 
 ---
 
 ## Prerequisites
 
 - Python 3.10+
-- Apache Kafka running locally (`localhost:9092`)
-- OpenWeatherMap API key ([sign up free](https://home.openweathermap.org/api_keys))
+- Java 11+ (required by Spark)
+- Apache Kafka on `localhost:9092`
+- OpenWeatherMap API key
+- Optional: Slack incoming webhook URL
 
-### Install Kafka (macOS)
+### Install Kafka & Java (macOS)
 
 ```bash
-brew install kafka
+brew install kafka openjdk@11
 ```
 
 ---
 
 ## Setup
 
-### 1. Clone the repository
-
 ```bash
 git clone https://github.com/Architgupta20/Weather-Data-Dashboard.git
 cd Weather-Data-Dashboard
-```
-
-### 2. Create and activate a virtual environment
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 4. Configure environment variables
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set your API key:
+Edit `.env`:
 
 ```dotenv
-OPENWEATHER_API_KEY=your_openweather_api_key_here
+OPENWEATHER_API_KEY=your_key_here
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ   # optional
 ```
 
 ---
 
-## Kafka Setup
-
-Start Zookeeper and the Kafka broker (use two terminals):
+## Kafka
 
 ```bash
 zookeeper-server-start /opt/homebrew/etc/kafka/zookeeper.properties
-```
-
-```bash
 kafka-server-start /opt/homebrew/etc/kafka/server.properties
 ```
 
-> On Intel Macs with Homebrew, paths may be under `/usr/local/etc/kafka/` instead of `/opt/homebrew/etc/kafka/`.
-
-Create the topic (only needed once):
+Create the topic once:
 
 ```bash
 kafka-topics --create \
@@ -144,65 +130,33 @@ kafka-topics --create \
   --replication-factor 1
 ```
 
-Verify the topic exists:
+---
 
-```bash
-kafka-topics --list --bootstrap-server localhost:9092
-```
+## Run
+
+Use **four terminals** (venv activated in each):
+
+| Terminal | Command |
+|----------|---------|
+| 1 | `python producer.py` |
+| 2 | `python consumer_spark.py` |
+| 3 | `streamlit run dashboard.py` |
+| 4 | Kafka + Zookeeper (if not already running) |
+
+Open the Streamlit URL (typically http://localhost:8501).
 
 ---
 
-## Run the Project
+## Anomaly Detection
 
-Run these from the project root with your virtual environment activated.
+For each city and metric (`temperature`, `humidity`, `wind_speed`):
 
-### Terminal 1 — Producer
+- **Z-score alerts:** compare live values to a rolling baseline (default: last 7 days, min 5 samples)
+- **Absolute alerts:** heat wave (≥ 40°C), cold snap (≤ -5°C), extreme humidity (≥ 95%), high wind (≥ 15 m/s)
 
-Open `producer.ipynb` in Jupyter or VS Code and run all cells, **or**:
+Alerts are stored in `data/alerts/alerts.parquet`. If `SLACK_WEBHOOK_URL` is set, new alerts are posted to Slack (1-hour cooldown per alert type by default).
 
-```bash
-jupyter notebook producer.ipynb
-```
-
-The producer fetches weather for each city and publishes to the `weather_data` topic.
-
-### Terminal 2 — Consumer
-
-Open `consumer.ipynb` and run all cells. It listens on Kafka, collects 10 messages, appends them to `weather_data.csv`, then waits 30 seconds before the next batch.
-
-### Terminal 3 — Dashboard
-
-```bash
-streamlit run dashboard.py
-```
-
-Open the URL shown in the terminal (typically **http://localhost:8501**). The dashboard reads `weather_data.csv` and refreshes every 30 seconds when new batches arrive.
-
----
-
-## Data Schema
-
-Each weather record contains:
-
-| Field | Description |
-|-------|-------------|
-| `timestamp` | Unix timestamp from OpenWeatherMap |
-| `city` | City name |
-| `temperature` | Temperature (°C) |
-| `humidity` | Humidity (%) |
-| `wind_speed` | Wind speed (m/s) |
-| `weather_condition` | Text description (e.g. clear sky) |
-
----
-
-## Optional: Convert notebooks to scripts
-
-```bash
-jupyter nbconvert --to script producer.ipynb
-jupyter nbconvert --to script consumer.ipynb
-```
-
-Then run `python producer.py` and `python consumer.py` instead of the notebooks.
+Tune via `.env`: `ANOMALY_Z_THRESHOLD`, `BASELINE_DAYS`, `ALERT_COOLDOWN_SECONDS`.
 
 ---
 

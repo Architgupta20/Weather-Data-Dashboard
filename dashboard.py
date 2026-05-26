@@ -1,105 +1,137 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+"""Streamlit dashboard for weather events, aggregates, and anomaly alerts."""
+
 import time
 
-st.set_page_config(layout="wide")
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
-# Initialize session state variables
+from data_loader import load_aggregates, load_alerts, load_events
+
+st.set_page_config(page_title="Weather Intelligence Dashboard", layout="wide")
+st.title("Weather Intelligence Dashboard")
+st.caption("Live data from Kafka → Spark → Parquet, with rolling-baseline anomaly detection.")
+
 if "start_index" not in st.session_state:
-    st.session_state.start_index = 0  # Track the current 10-record batch
+    st.session_state.start_index = 0
 if "refresh_count" not in st.session_state:
-    st.session_state.refresh_count = 0  # Count dashboard refreshes
+    st.session_state.refresh_count = 0
 
-# File path
-DATA_FILE = "weather_data.csv"
+refresh_seconds = st.sidebar.slider("Auto-refresh (seconds)", 15, 120, 30)
+auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
 
-# Function to load data
-@st.cache_data(ttl=10)
-def load_data():
-    try:
-        df = pd.read_csv(DATA_FILE)
-        if df.empty:
-            return pd.DataFrame()  # Return empty DataFrame if no data
-        return df
-    except:
-        return pd.DataFrame()
+events = load_events()
+aggregates = load_aggregates()
+alerts = load_alerts()
 
-# Create placeholders
-refresh_placeholder = st.empty()
-data_placeholder = st.empty()
-metrics_placeholder = st.empty()
-chart_placeholder = st.empty()
+tab_dashboard, tab_alerts, tab_aggregates = st.tabs(
+    ["Dashboard", "Alerts", "5-min Aggregates"]
+)
 
-while True:
-    df = load_data()
-
-    if not df.empty:
-        total_rows = len(df)
-
-        # If new 10 records are available, update the display
+with tab_dashboard:
+    if events.empty:
+        st.warning(
+            "No event data yet. Start `producer.py` and `consumer_spark.py` "
+            "after Kafka is running."
+        )
+    else:
+        total_rows = len(events)
         if st.session_state.start_index + 10 <= total_rows:
-            df_display = df.iloc[st.session_state.start_index : st.session_state.start_index + 10]  # Take next 10 records
-            st.session_state.start_index += 10  # Move to next batch
-            st.session_state.refresh_count += 1  # Increase refresh count
+            batch = events.iloc[
+                st.session_state.start_index : st.session_state.start_index + 10
+            ]
+            st.session_state.start_index += 10
+            st.session_state.refresh_count += 1
+        else:
+            batch = events.tail(10)
 
-            # Display refresh count
-            with refresh_placeholder.container():
-                st.success(f"🔄 Dashboard refreshed {st.session_state.refresh_count} time(s)")
+        st.success(f"Dashboard refresh count: {st.session_state.refresh_count}")
+        st.subheader("Latest weather batch")
+        st.dataframe(batch, use_container_width=True)
 
-            # Display Data
-            with data_placeholder.container():
-                st.subheader("Latest Weather Data (Entries in Order of Arrival)")
-                st.dataframe(df_display)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Avg temp (°C)", round(batch["temperature"].mean(), 2))
+        col2.metric("Avg humidity (%)", round(batch["humidity"].mean(), 2))
+        col3.metric("Avg wind (m/s)", round(batch["wind_speed"].mean(), 2))
 
-            # Display Metrics
-            with metrics_placeholder.container():
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Avg Temp (°C)", round(df_display["temperature"].mean(), 2))
-                col2.metric("Avg Humidity (%)", round(df_display["humidity"].mean(), 2))
-                col3.metric("Avg Wind Speed (km/h)", round(df_display["wind_speed"].mean(), 2))
+        chart_col1, chart_col2 = st.columns(2)
+        with chart_col1:
+            st.plotly_chart(
+                px.line(
+                    batch,
+                    x="timestamp",
+                    y="temperature",
+                    color="city",
+                    markers=True,
+                    title="Temperature trends",
+                ),
+                use_container_width=True,
+            )
+        with chart_col2:
+            st.plotly_chart(
+                px.scatter(
+                    batch,
+                    x="wind_speed",
+                    y="temperature",
+                    color="city",
+                    size="humidity",
+                    hover_data=["weather_condition"],
+                    title="Wind vs temperature",
+                ),
+                use_container_width=True,
+            )
 
-            # Display Charts
-            with chart_placeholder.container():
-                col1, col2 = st.columns(2)
+with tab_alerts:
+    st.subheader("Active anomaly alerts")
+    if alerts.empty:
+        st.info(
+            "No alerts yet. Alerts appear when metrics deviate from a rolling baseline "
+            "or cross absolute thresholds (heat wave, cold snap, etc.)."
+        )
+    else:
+        active = alerts.copy()
+        if "severity" in active.columns:
+            severity_filter = st.multiselect(
+                "Severity",
+                options=sorted(active["severity"].dropna().unique()),
+                default=list(active["severity"].dropna().unique()),
+            )
+            active = active[active["severity"].isin(severity_filter)]
 
-                with col1:
-                    st.subheader("📈 Temperature Trends")
-                    fig_temp = px.line(df_display, x="timestamp", y="temperature", color="city",
-                                       markers=True, title="Temperature Trends")
-                    st.plotly_chart(fig_temp, use_container_width=True, key=f"temp_{st.session_state.refresh_count}")
+        st.metric("Total alerts stored", len(alerts))
+        st.dataframe(active, use_container_width=True)
 
-                with col2:
-                    st.subheader("🏙️ City-wise Weather Conditions")
-                    city_weather = df_display.groupby("city")["weather_condition"].value_counts().unstack().fillna(0)
-                    fig_weather = px.bar(city_weather, title="City-wise Weather Conditions", barmode="stack")
-                    st.plotly_chart(fig_weather, use_container_width=True, key=f"weather_{st.session_state.refresh_count}")
+        if "severity" in active.columns and not active.empty:
+            st.plotly_chart(
+                px.histogram(
+                    active,
+                    x="city",
+                    color="severity",
+                    title="Alerts by city and severity",
+                ),
+                use_container_width=True,
+            )
 
-                col3, col4 = st.columns(2)
+with tab_aggregates:
+    st.subheader("Spark windowed aggregates (5-minute windows)")
+    if aggregates.empty:
+        st.info("No aggregate data yet. Start `consumer_spark.py` to populate Parquet output.")
+    else:
+        st.dataframe(aggregates.tail(50), use_container_width=True)
+        if {"window_start", "avg_temperature", "city"}.issubset(aggregates.columns):
+            plot_df = aggregates.copy()
+            plot_df["window_start"] = pd.to_datetime(plot_df["window_start"])
+            st.plotly_chart(
+                px.line(
+                    plot_df,
+                    x="window_start",
+                    y="avg_temperature",
+                    color="city",
+                    title="Average temperature by 5-minute window",
+                ),
+                use_container_width=True,
+            )
 
-                with col3:
-                    st.subheader("💧 Humidity Distribution")
-                    fig_humidity = px.pie(df_display, names="city", values="humidity", title="Humidity Distribution by City")
-                    st.plotly_chart(fig_humidity, use_container_width=True, key=f"humidity_{st.session_state.refresh_count}")
-
-                with col4:
-                    st.subheader("💨 Wind Speed vs. Temperature")
-                    fig_scatter = px.scatter(df_display, x="wind_speed", y="temperature", color="city",
-                                             size="humidity", hover_data=["weather_condition"],
-                                             title="Wind Speed vs Temperature")
-                    st.plotly_chart(fig_scatter, use_container_width=True, key=f"scatter_{st.session_state.refresh_count}")
-
-                # Additional Visualization 1: Bar Chart for City-wise Average Temperature
-                st.subheader("🌡️ City-wise Average Temperature")
-                avg_temp = df_display.groupby("city")["temperature"].mean().reset_index()
-                fig_avg_temp = px.bar(avg_temp, x="city", y="temperature", title="Average Temperature per City",
-                                      color="temperature", color_continuous_scale="bluered")
-                st.plotly_chart(fig_avg_temp, use_container_width=True, key=f"avg_temp_{st.session_state.refresh_count}")
-
-                # Additional Visualization 2: Heatmap for Temperature vs. Humidity with "ice" color
-                st.subheader("🔥 Heatmap: Temperature vs. Humidity")
-                fig_heatmap = px.density_heatmap(df_display, x="temperature", y="humidity",
-                                                 color_continuous_scale="ice", title="Temperature vs. Humidity Heatmap")
-                st.plotly_chart(fig_heatmap, use_container_width=True, key=f"heatmap_{st.session_state.refresh_count}")
-
-    time.sleep(30)  # Wait 30 seconds before checking again
+if auto_refresh:
+    time.sleep(refresh_seconds)
+    st.rerun()

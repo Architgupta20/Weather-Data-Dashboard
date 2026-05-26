@@ -3,7 +3,8 @@ __pycache__/
 .env
 *.env
 !.env.example
+.venv/
 venv/
-weather_data.csv
+data/
 .ipynb_checkpoints/
 .DS_Store

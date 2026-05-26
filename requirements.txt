@@ -4,3 +4,5 @@ kafka-python
 pandas
 requests
 python-dotenv
+pyspark
+pyarrow
