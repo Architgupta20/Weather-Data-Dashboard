@@ -33,7 +33,10 @@ CITIES = [
 
 producer = KafkaProducer(
     bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+    key_serializer=lambda key: key.encode("utf-8"),
     value_serializer=lambda payload: json.dumps(payload).encode("utf-8"),
+    acks="all",
+    retries=10,
 )
 
 
@@ -64,7 +67,8 @@ def main() -> None:
         for city in CITIES:
             record = fetch_weather(city)
             if record:
-                producer.send(KAFKA_TOPIC, value=record)
+                record_key = f"{record['city']}:{record['timestamp']}"
+                producer.send(KAFKA_TOPIC, key=record_key, value=record)
                 print(f"Sent: {record}")
             time.sleep(2)
 

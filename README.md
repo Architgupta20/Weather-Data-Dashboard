@@ -70,6 +70,9 @@ OpenWeatherMap API
 ├── alerts.py             # Alert persistence + Slack notifications
 ├── data_loader.py        # Parquet loaders for dashboard
 ├── config.py             # Paths and environment configuration
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -125,6 +128,8 @@ OPENWEATHER_API_KEY=your_openweather_api_key_here
 SLACK_WEBHOOK_URL=                                    # optional
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 KAFKA_TOPIC=weather_data
+KAFKA_STARTING_OFFSETS=latest
+TRIGGER_INTERVAL=30 seconds
 ```
 
 ### 3. Format Kafka storage (first time only)
@@ -142,6 +147,34 @@ kafka-storage format -t "$KAFKA_CLUSTER_ID" \
 ```
 
 > If you see "already formatted", skip this step.
+
+---
+
+## Quick Start with Docker Compose
+
+Run the full stack with one command (Kafka + producer + Spark consumer + dashboard):
+
+```bash
+docker compose up --build
+```
+
+Open **http://localhost:8501**.
+
+Useful commands:
+
+```bash
+# Stop everything
+docker compose down
+
+# Stop and remove Kafka volume too (fresh Kafka state)
+docker compose down -v
+```
+
+Notes:
+
+- The dashboard reads and writes data via `./data` (bind-mounted from host).
+- First consumer startup may take longer while Spark resolves Kafka connector JARs.
+- If you switch between Docker and local runs, use the [clean restart](#clean-restart) section to reset stale checkpoints.
 
 ---
 

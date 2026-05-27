@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # Kafka
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "weather_data")
+KAFKA_STARTING_OFFSETS = os.getenv("KAFKA_STARTING_OFFSETS", "latest")
 
 # Storage
 EVENTS_PATH = PROJECT_ROOT / "data" / "weather" / "events"
@@ -30,3 +31,4 @@ ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "3600"))
 SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "WeatherStructuredStreaming")
 WINDOW_DURATION = os.getenv("WINDOW_DURATION", "5 minutes")
 WATERMARK_DELAY = os.getenv("WATERMARK_DELAY", "10 minutes")
+TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "30 seconds")

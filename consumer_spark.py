@@ -23,8 +23,10 @@ from config import (
     CHECKPOINT_EVENTS,
     EVENTS_PATH,
     KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_STARTING_OFFSETS,
     KAFKA_TOPIC,
     SPARK_APP_NAME,
+    TRIGGER_INTERVAL,
     WATERMARK_DELAY,
     WINDOW_DURATION,
 )
@@ -64,7 +66,7 @@ def parse_kafka_stream(spark: SparkSession) -> DataFrame:
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", KAFKA_TOPIC)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", KAFKA_STARTING_OFFSETS)
         .load()
     )
 
@@ -75,6 +77,8 @@ def parse_kafka_stream(spark: SparkSession) -> DataFrame:
     return (
         parsed.withColumn("event_time", F.from_unixtime("timestamp").cast(TimestampType()))
         .withColumn("event_date", F.to_date("event_time"))
+        .withWatermark("event_time", WATERMARK_DELAY)
+        .dropDuplicates(["city", "timestamp"])
         .dropna(subset=["city", "timestamp"])
     )
 
@@ -114,6 +118,7 @@ def start_events_stream(parsed: DataFrame):
     return (
         parsed.writeStream.foreachBatch(process_batch)
         .option("checkpointLocation", str(CHECKPOINT_EVENTS))
+        .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
 
@@ -123,8 +128,7 @@ def start_aggregate_stream(parsed: DataFrame):
     CHECKPOINT_AGGREGATES.mkdir(parents=True, exist_ok=True)
 
     windowed = (
-        parsed.withWatermark("event_time", WATERMARK_DELAY)
-        .groupBy(F.window(F.col("event_time"), WINDOW_DURATION), F.col("city"))
+        parsed.groupBy(F.window(F.col("event_time"), WINDOW_DURATION), F.col("city"))
         .agg(
             F.avg("temperature").alias("avg_temperature"),
             F.avg("humidity").alias("avg_humidity"),
@@ -148,6 +152,7 @@ def start_aggregate_stream(parsed: DataFrame):
         .option("path", str(AGGREGATES_PATH))
         .option("checkpointLocation", str(CHECKPOINT_AGGREGATES))
         .partitionBy("city")
+        .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
 
