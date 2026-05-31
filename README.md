@@ -40,7 +40,8 @@ OpenWeatherMap API
 - 5-minute windowed aggregates (avg temp, humidity, wind)
 - Rolling-baseline anomaly detection (z-score + absolute thresholds)
 - Optional Slack notifications with cooldown deduplication
-- Streamlit dashboard with **Dashboard**, **Alerts**, and **Aggregates** tabs
+- Streamlit dashboard with **Dashboard**, **Alerts**, **Aggregates**, and **Forecast** tabs
+- Short-horizon forecasting (Prophet when installed, else Holt–Winters ETS or linear trend) with holdout MAE/RMSE
 
 ---
 
@@ -53,7 +54,7 @@ OpenWeatherMap API
 | Messaging | Apache Kafka |
 | Stream processing | Apache Spark (Structured Streaming) |
 | Storage | Parquet (PyArrow) |
-| Analytics | pandas, custom anomaly detection |
+| Analytics | pandas, statsmodels, optional Prophet, anomaly detection |
 | Visualization | Streamlit, Plotly |
 | Alerts | Slack incoming webhooks (optional) |
 | Config | python-dotenv |
@@ -69,6 +70,7 @@ OpenWeatherMap API
 ├── anomaly_detector.py   # Rolling-baseline + threshold anomaly rules
 ├── alerts.py             # Alert persistence + Slack notifications
 ├── data_loader.py        # Parquet loaders for dashboard
+├── forecasting.py        # Short-horizon forecasts (Prophet / ETS / linear)
 ├── config.py             # Paths and environment configuration
 ├── Dockerfile
 ├── docker-compose.yml
@@ -267,6 +269,25 @@ Open the URL printed in the terminal (usually **http://localhost:8501**).
 | **Dashboard** | Latest weather batch + charts |
 | **Alerts** | Detected anomalies |
 | **5-min Aggregates** | Spark windowed averages |
+| **Forecast** | Next-interval forecast + confidence band and backtest metrics |
+
+---
+
+## Forecasting
+
+The **Forecast** tab uses historical event Parquet data for the selected city and metric (`temperature`, `humidity`, `wind_speed`).
+
+1. **Minimum data:** at least **12** resampled time points for that city (keep producer + consumer running for a while).
+2. **Model order:** tries **Prophet** if installed; otherwise **statsmodels** exponential smoothing; otherwise a **linear trend** fallback.
+3. **Validation:** holdout MAE/RMSE on the most recent segment of history.
+
+Optional Prophet (may not install on Python 3.13+):
+
+```bash
+pip install prophet
+```
+
+`statsmodels` is included in `requirements.txt`.
 
 ---
 

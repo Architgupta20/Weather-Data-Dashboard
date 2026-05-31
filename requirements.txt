@@ -7,3 +7,6 @@ python-dotenv
 pyspark
 pyarrow
 setuptools
+statsmodels
+# prophet is optional; install if available on your Python version (may fail on 3.13+)
+# prophet

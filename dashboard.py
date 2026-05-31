@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from data_loader import (
@@ -16,6 +17,7 @@ from data_loader import (
     load_events,
     with_event_time,
 )
+from forecasting import generate_forecast
 
 STALE_AFTER_SECONDS = 120
 DEFAULT_CITIES = [
@@ -218,6 +220,142 @@ def render_alerts_tab(alerts: pd.DataFrame) -> None:
         )
 
 
+@st.cache_data(ttl=60, show_spinner="Generating forecast...")
+def cached_forecast(
+    events: pd.DataFrame,
+    city: str,
+    metric: str,
+    periods: int,
+    data_version: str,
+):
+    return generate_forecast(events, city, metric, periods)
+
+
+def render_forecast_tab(events: pd.DataFrame) -> None:
+    st.subheader("Short-term forecast")
+    st.caption("Forecasts the next few intervals using historical Parquet data for the selected city.")
+
+    if events.empty:
+        st.warning("No historical data available yet. Run the pipeline to collect events.")
+        return
+
+    cities = sorted(events["city"].dropna().unique().tolist())
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        city = st.selectbox("City", options=cities, key="forecast_city")
+    with col2:
+        metric = st.selectbox(
+            "Metric",
+            options=["temperature", "humidity", "wind_speed"],
+            format_func=lambda m: {
+                "temperature": "Temperature (°C)",
+                "humidity": "Humidity (%)",
+                "wind_speed": "Wind speed (m/s)",
+            }[m],
+            key="forecast_metric",
+        )
+    with col3:
+        periods = st.slider("Forecast steps", min_value=3, max_value=12, value=6, key="forecast_periods")
+
+    latest_ts = latest_event_timestamp(events)
+    version_key = f"{len(events)}_{latest_ts}"
+    result = cached_forecast(events, city, metric, periods, version_key)
+
+    if result.method == "none":
+        st.warning(result.message)
+        return
+
+    st.info(f"Model used: **{result.method.replace('_', ' ')}**")
+
+    m1, m2, m3 = st.columns(3)
+    if result.forecast.empty:
+        st.warning("Forecast could not be generated.")
+        return
+
+    next_value = float(result.forecast.iloc[0]["yhat"])
+    m1.metric(f"Next {metric} forecast", round(next_value, 2))
+    m2.metric("Backtest MAE", "—" if result.mae is None else round(result.mae, 2))
+    m3.metric("Backtest RMSE", "—" if result.rmse is None else round(result.rmse, 2))
+
+    fig = go.Figure()
+    history = result.history.copy()
+    forecast = result.forecast.copy()
+    history["ds"] = pd.to_datetime(history["ds"], utc=True)
+    forecast["ds"] = pd.to_datetime(forecast["ds"], utc=True)
+
+    fig.add_trace(
+        go.Scatter(
+            x=history["ds"],
+            y=history["y"],
+            mode="lines+markers",
+            name="Historical actual",
+            line=dict(color="#1f77b4"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat"],
+            mode="lines+markers",
+            name="Forecast",
+            line=dict(color="#ff7f0e", dash="dash"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat_upper"],
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat_lower"],
+            mode="lines",
+            fill="tonexty",
+            name="Confidence band",
+            line=dict(width=0),
+            fillcolor="rgba(255, 127, 14, 0.2)",
+        )
+    )
+    fig.update_layout(
+        title=f"{city} — {metric} forecast",
+        xaxis_title="Time (UTC)",
+        yaxis_title=metric,
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    if not result.holdout_actual.empty and not result.holdout_predicted.empty:
+        st.subheader("Holdout validation (recent history)")
+        holdout_fig = go.Figure()
+        holdout_fig.add_trace(
+            go.Scatter(
+                x=result.holdout_actual["ds"],
+                y=result.holdout_actual["y"],
+                mode="lines+markers",
+                name="Actual (holdout)",
+            )
+        )
+        holdout_fig.add_trace(
+            go.Scatter(
+                x=result.holdout_predicted["ds"],
+                y=result.holdout_predicted["yhat"],
+                mode="lines+markers",
+                name="Predicted (holdout)",
+            )
+        )
+        holdout_fig.update_layout(
+            title="Forecast vs actual on held-out recent points",
+            xaxis_title="Time (UTC)",
+            yaxis_title=metric,
+        )
+        st.plotly_chart(holdout_fig, use_container_width=True)
+
+
 def render_aggregates_tab(aggregates: pd.DataFrame) -> None:
     st.subheader("Spark 5-minute window aggregates")
     st.caption("Tumbling windows computed by Spark Structured Streaming.")
@@ -279,8 +417,8 @@ def render_main_content() -> None:
     snapshot = latest_reading_per_city(events_filtered)
     recent = events_filtered
 
-    tab_dashboard, tab_alerts, tab_aggregates = st.tabs(
-        ["Dashboard", "Alerts", "5-min Aggregates"]
+    tab_dashboard, tab_alerts, tab_aggregates, tab_forecast = st.tabs(
+        ["Dashboard", "Alerts", "5-min Aggregates", "Forecast"]
     )
 
     with tab_dashboard:
@@ -289,6 +427,8 @@ def render_main_content() -> None:
         render_alerts_tab(alerts_filtered)
     with tab_aggregates:
         render_aggregates_tab(aggregates_filtered)
+    with tab_forecast:
+        render_forecast_tab(events_filtered)
 
     st.caption(f"Data refreshed at {format_event_time(datetime.now(timezone.utc))}")
 
