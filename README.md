@@ -42,6 +42,7 @@ OpenWeatherMap API
 - Optional Slack notifications with cooldown deduplication
 - Streamlit dashboard with **Dashboard**, **Alerts**, **Aggregates**, and **Forecast** tabs
 - Short-horizon forecasting (Prophet when installed, else Holt–Winters ETS or linear trend) with holdout MAE/RMSE
+- **World map** with heat-index coloring and NOAA-style **feels-like** (heat index) in the dashboard table
 
 ---
 
@@ -71,6 +72,8 @@ OpenWeatherMap API
 ├── alerts.py             # Alert persistence + Slack notifications
 ├── data_loader.py        # Parquet loaders for dashboard
 ├── forecasting.py        # Short-horizon forecasts (Prophet / ETS / linear)
+├── weather_metrics.py    # Heat index and comfort labels
+├── city_geo.py           # City coordinates for map view
 ├── config.py             # Paths and environment configuration
 ├── Dockerfile
 ├── docker-compose.yml

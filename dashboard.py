@@ -18,6 +18,21 @@ from data_loader import (
     with_event_time,
 )
 from forecasting import generate_forecast
+from weather_metrics import enrich_weather_frame
+
+FORECAST_METHODS = {
+    "auto": "Auto (Prophet → ETS → linear)",
+    "prophet": "Prophet",
+    "exponential_smoothing": "Exponential smoothing (statsmodels)",
+    "linear_trend": "Linear trend",
+}
+
+FORECAST_METRICS = {
+    "temperature": "Temperature (°C)",
+    "humidity": "Humidity (%)",
+    "wind_speed": "Wind speed (m/s)",
+    "heat_index": "Heat index / feels like (°C)",
+}
 
 STALE_AFTER_SECONDS = 120
 DEFAULT_CITIES = [
@@ -79,11 +94,69 @@ def render_sidebar_status(events: pd.DataFrame, alerts: pd.DataFrame, aggregates
     st.sidebar.caption(f"Last update: {format_event_time(latest)}")
 
     if not events.empty and latest is not None:
-        latest_row = with_event_time(events).sort_values("timestamp").iloc[-1]
+        latest_row = enrich_weather_frame(with_event_time(events).sort_values("timestamp")).iloc[-1]
+        feels = (
+            f", feels {latest_row['heat_index']:.1f}°C"
+            if "heat_index" in latest_row.index
+            else ""
+        )
         st.sidebar.caption(
             f"Latest reading: **{latest_row['city']}** — "
-            f"{latest_row['temperature']:.1f}°C, {latest_row['weather_condition']}"
+            f"{latest_row['temperature']:.1f}°C{feels}, {latest_row['weather_condition']}"
         )
+
+
+def render_world_map(snapshot: pd.DataFrame) -> None:
+    mapped = snapshot.dropna(subset=["lat", "lon"])
+    if mapped.empty:
+        st.caption("Map unavailable for the current city selection.")
+        return
+
+    hover = mapped.apply(
+        lambda r: (
+            f"<b>{r['city']}</b><br>"
+            f"Temp: {r['temperature']:.1f}°C<br>"
+            f"Feels like: {r.get('heat_index', r['temperature']):.1f}°C<br>"
+            f"Humidity: {r['humidity']:.0f}%<br>"
+            f"{r.get('weather_condition', '')}"
+        ),
+        axis=1,
+    )
+
+    fig = go.Figure(
+        data=go.Scattergeo(
+            lon=mapped["lon"],
+            lat=mapped["lat"],
+            text=mapped["city"],
+            hovertext=hover,
+            hoverinfo="text",
+            mode="markers",
+            marker=dict(
+                size=16,
+                color=mapped["heat_index"] if "heat_index" in mapped.columns else mapped["temperature"],
+                colorscale="YlOrRd",
+                cmin=mapped["heat_index"].min() if "heat_index" in mapped.columns else None,
+                cmax=mapped["heat_index"].max() if "heat_index" in mapped.columns else None,
+                colorbar=dict(title="Heat index (°C)"),
+                line=dict(width=1.5, color="white"),
+            ),
+        )
+    )
+    fig.update_geos(
+        projection_type="natural earth",
+        showland=True,
+        landcolor="#e8e8e8",
+        showcountries=True,
+        countrycolor="#bdbdbd",
+        showocean=True,
+        oceancolor="#d6eaf8",
+    )
+    fig.update_layout(
+        title="Global snapshot (marker color = heat index)",
+        height=440,
+        margin=dict(l=0, r=0, t=48, b=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
@@ -94,6 +167,12 @@ def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
         )
         return
 
+    snapshot = enrich_weather_frame(snapshot)
+    recent = enrich_weather_frame(recent)
+
+    st.subheader("World map")
+    render_world_map(snapshot)
+
     st.subheader("Latest reading per city")
     display_cols = [
         c
@@ -101,6 +180,8 @@ def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
             "city",
             "event_time",
             "temperature",
+            "heat_index",
+            "comfort",
             "humidity",
             "wind_speed",
             "weather_condition",
@@ -114,13 +195,17 @@ def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
     )
 
     hottest = snapshot.loc[snapshot["temperature"].idxmax()]
-    coolest = snapshot.loc[snapshot["temperature"].idxmin()]
+    most_uncomfortable = snapshot.loc[snapshot["heat_index"].idxmax()]
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Avg temp (°C)", round(snapshot["temperature"].mean(), 1))
-    col2.metric("Avg humidity (%)", round(snapshot["humidity"].mean(), 1))
-    col3.metric("Hottest city", f"{hottest['city']} ({hottest['temperature']:.1f}°C)")
-    col4.metric("Coolest city", f"{coolest['city']} ({coolest['temperature']:.1f}°C)")
+    col2.metric("Avg feels like (°C)", round(snapshot["heat_index"].mean(), 1))
+    col3.metric("Avg humidity (%)", round(snapshot["humidity"].mean(), 1))
+    col4.metric("Hottest", f"{hottest['city']} ({hottest['temperature']:.1f}°C)")
+    col5.metric(
+        "Highest heat index",
+        f"{most_uncomfortable['city']} ({most_uncomfortable['heat_index']:.1f}°C)",
+    )
 
     chart_col1, chart_col2 = st.columns(2)
     with chart_col1:
@@ -139,12 +224,12 @@ def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
         st.plotly_chart(
             px.scatter(
                 snapshot,
-                x="wind_speed",
-                y="temperature",
+                x="temperature",
+                y="heat_index",
                 color="city",
                 size="humidity",
-                hover_data=["weather_condition"],
-                title="Wind vs temperature (latest snapshot)",
+                hover_data=["weather_condition", "comfort"],
+                title="Temperature vs heat index (feels like)",
             ),
             use_container_width=True,
         )
@@ -226,40 +311,56 @@ def cached_forecast(
     city: str,
     metric: str,
     periods: int,
+    method_preference: str,
     data_version: str,
 ):
-    return generate_forecast(events, city, metric, periods)
+    return generate_forecast(
+        events,
+        city,
+        metric,
+        periods,
+        method_preference=method_preference,
+    )
 
 
 def render_forecast_tab(events: pd.DataFrame) -> None:
     st.subheader("Short-term forecast")
-    st.caption("Forecasts the next few intervals using historical Parquet data for the selected city.")
+    st.caption(
+        "Forecasts the next few intervals using historical Parquet data. "
+        "Refreshes with sidebar auto-refresh."
+    )
 
     if events.empty:
         st.warning("No historical data available yet. Run the pipeline to collect events.")
         return
 
+    events = enrich_weather_frame(events)
     cities = sorted(events["city"].dropna().unique().tolist())
-    col1, col2, col3 = st.columns(3)
+    metric_options = [m for m in FORECAST_METRICS if m in events.columns]
+
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         city = st.selectbox("City", options=cities, key="forecast_city")
     with col2:
         metric = st.selectbox(
             "Metric",
-            options=["temperature", "humidity", "wind_speed"],
-            format_func=lambda m: {
-                "temperature": "Temperature (°C)",
-                "humidity": "Humidity (%)",
-                "wind_speed": "Wind speed (m/s)",
-            }[m],
+            options=metric_options,
+            format_func=lambda m: FORECAST_METRICS[m],
             key="forecast_metric",
         )
     with col3:
+        method_pref = st.selectbox(
+            "Model",
+            options=list(FORECAST_METHODS.keys()),
+            format_func=lambda k: FORECAST_METHODS[k],
+            key="forecast_method",
+        )
+    with col4:
         periods = st.slider("Forecast steps", min_value=3, max_value=12, value=6, key="forecast_periods")
 
     latest_ts = latest_event_timestamp(events)
-    version_key = f"{len(events)}_{latest_ts}"
-    result = cached_forecast(events, city, metric, periods, version_key)
+    version_key = f"{len(events)}_{latest_ts}_{method_pref}"
+    result = cached_forecast(events, city, metric, periods, method_pref, version_key)
 
     if result.method == "none":
         st.warning(result.message)
@@ -324,7 +425,7 @@ def render_forecast_tab(events: pd.DataFrame) -> None:
     fig.update_layout(
         title=f"{city} — {metric} forecast",
         xaxis_title="Time (UTC)",
-        yaxis_title=metric,
+        yaxis_title=FORECAST_METRICS.get(metric, metric),
         hovermode="x unified",
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -351,7 +452,7 @@ def render_forecast_tab(events: pd.DataFrame) -> None:
         holdout_fig.update_layout(
             title="Forecast vs actual on held-out recent points",
             xaxis_title="Time (UTC)",
-            yaxis_title=metric,
+            yaxis_title=FORECAST_METRICS.get(metric, metric),
         )
         st.plotly_chart(holdout_fig, use_container_width=True)
 

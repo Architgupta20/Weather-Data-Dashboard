@@ -180,13 +180,38 @@ def _run_holdout_backtest(series: pd.Series, periods: int, method: str, freq: st
     )
 
 
+def _forecast_with_method(series: pd.Series, periods: int, freq: str, method: str) -> pd.DataFrame:
+    if method == "prophet":
+        return _forecast_prophet(series, periods, freq)
+    if method == "exponential_smoothing":
+        return _forecast_statsmodels(series, periods)
+    if method == "linear_trend":
+        return _forecast_linear(series, periods)
+    raise ValueError(f"Unknown forecast method: {method}")
+
+
+def _auto_forecast(series: pd.Series, periods: int, freq: str) -> tuple[pd.DataFrame, str]:
+    try:
+        return _forecast_prophet(series, periods, freq), "prophet"
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    try:
+        return _forecast_statsmodels(series, periods), "exponential_smoothing"
+    except Exception:
+        pass
+    return _forecast_linear(series, periods), "linear_trend"
+
+
 def generate_forecast(
     events: pd.DataFrame,
     city: str,
     metric: str,
     periods: int = 6,
+    method_preference: str = "auto",
 ) -> ForecastResult:
-    """Build forecast with Prophet when possible, else ETS / linear fallback."""
+    """Build forecast; use method_preference or auto cascade (Prophet → ETS → linear)."""
     series = prepare_city_series(events, city, metric)
     if len(series) < MIN_HISTORY_POINTS:
         return ForecastResult(
@@ -204,26 +229,24 @@ def generate_forecast(
         )
 
     freq = _infer_freq(series)
-    method = "linear_trend"
-    forecast_df = pd.DataFrame()
 
-    try:
-        forecast_df = _forecast_prophet(series, periods, freq)
-        method = "prophet"
-    except ImportError:
+    if method_preference == "auto":
+        forecast_df, method = _auto_forecast(series, periods, freq)
+    else:
         try:
-            forecast_df = _forecast_statsmodels(series, periods)
-            method = "exponential_smoothing"
-        except Exception:
-            forecast_df = _forecast_linear(series, periods)
-            method = "linear_trend"
-    except Exception:
-        try:
-            forecast_df = _forecast_statsmodels(series, periods)
-            method = "exponential_smoothing"
-        except Exception:
-            forecast_df = _forecast_linear(series, periods)
-            method = "linear_trend"
+            forecast_df = _forecast_with_method(series, periods, freq, method_preference)
+            method = method_preference
+        except Exception as exc:
+            return ForecastResult(
+                method="none",
+                history=pd.DataFrame(),
+                forecast=pd.DataFrame(),
+                holdout_actual=pd.DataFrame(),
+                holdout_predicted=pd.DataFrame(),
+                mae=None,
+                rmse=None,
+                message=f"Could not run {method_preference.replace('_', ' ')}: {exc}",
+            )
 
     history_df = pd.DataFrame({"ds": series.index, "y": series.values})
     holdout_actual, holdout_predicted, mae, rmse = _run_holdout_backtest(series, periods, method, freq)
