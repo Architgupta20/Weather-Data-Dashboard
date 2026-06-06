@@ -7,6 +7,25 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+# Dashboard data source (priority: LIVE_MODE > DEMO_MODE > local Parquet pipeline)
+LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() in ("1", "true", "yes")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("1", "true", "yes")
+SAMPLE_DATA_ROOT = PROJECT_ROOT / "sample_data"
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+
+TRACKED_CITIES = [
+    "New York",
+    "London",
+    "Tokyo",
+    "Delhi",
+    "Paris",
+    "Berlin",
+    "Sydney",
+    "Toronto",
+    "Dubai",
+    "Singapore",
+]
+
 # Kafka
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "weather_data")
@@ -32,3 +51,16 @@ SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "WeatherStructuredStreaming")
 WINDOW_DURATION = os.getenv("WINDOW_DURATION", "5 minutes")
 WATERMARK_DELAY = os.getenv("WATERMARK_DELAY", "10 minutes")
 TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "30 seconds")
+
+
+def storage_paths() -> tuple[Path, Path, Path]:
+    """Return (events, aggregates, alerts) paths for demo or local pipeline data."""
+    if LIVE_MODE:
+        return EVENTS_PATH, AGGREGATES_PATH, ALERTS_PATH
+    if DEMO_MODE:
+        return (
+            SAMPLE_DATA_ROOT / "weather" / "events",
+            SAMPLE_DATA_ROOT / "weather" / "aggregates",
+            SAMPLE_DATA_ROOT / "alerts",
+        )
+    return EVENTS_PATH, AGGREGATES_PATH, ALERTS_PATH

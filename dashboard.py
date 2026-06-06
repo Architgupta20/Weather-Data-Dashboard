@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from config import DEMO_MODE, LIVE_MODE, OPENWEATHER_API_KEY, TRACKED_CITIES
 from data_loader import (
     latest_event_timestamp,
     latest_reading_per_city,
@@ -18,6 +19,8 @@ from data_loader import (
     with_event_time,
 )
 from forecasting import generate_forecast
+from live_fetcher import fetch_city_forecast
+from live_pipeline import refresh_live_data
 from weather_metrics import enrich_weather_frame
 
 FORECAST_METHODS = {
@@ -35,18 +38,7 @@ FORECAST_METRICS = {
 }
 
 STALE_AFTER_SECONDS = 120
-DEFAULT_CITIES = [
-    "Berlin",
-    "Delhi",
-    "Dubai",
-    "London",
-    "New York",
-    "Paris",
-    "Singapore",
-    "Sydney",
-    "Tokyo",
-    "Toronto",
-]
+DEFAULT_CITIES = sorted(TRACKED_CITIES)
 
 st.set_page_config(page_title="Weather Intelligence Dashboard", layout="wide")
 
@@ -66,6 +58,14 @@ def format_event_time(ts: datetime | None) -> str:
 
 
 def pipeline_status(events: pd.DataFrame, stale_after_seconds: int) -> tuple[str, str]:
+    if LIVE_MODE:
+        if not OPENWEATHER_API_KEY:
+            return "Live mode — API key missing", "error"
+        if events.empty:
+            return "Live mode — fetch failed", "error"
+        return "Live (OpenWeather API)", "success"
+    if DEMO_MODE:
+        return "Demo mode (sample data)", "success"
     if events.empty:
         return "No data", "error"
     latest = latest_event_timestamp(events)
@@ -323,6 +323,69 @@ def cached_forecast(
     )
 
 
+def get_dashboard_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if LIVE_MODE:
+        history = st.session_state.get("event_history", pd.DataFrame())
+        events, aggregates, alerts, updated_history = refresh_live_data(history)
+        st.session_state.event_history = updated_history
+        return events, aggregates, alerts
+    return load_events(), load_aggregates(), load_alerts()
+
+
+def render_live_forecast_tab(city: str, metric: str, periods: int) -> None:
+    if metric == "heat_index":
+        st.warning("Live API forecast supports temperature, humidity, and wind speed. Select one of those.")
+        return
+    try:
+        forecast = fetch_city_forecast(city, metric, steps=periods)
+    except Exception as exc:
+        st.error(f"Could not fetch live forecast: {exc}")
+        return
+
+    st.info("Model used: **OpenWeather 5-day forecast (live API)**")
+    m1, m2 = st.columns(2)
+    m1.metric(f"Next {metric} forecast", round(float(forecast.iloc[0]["yhat"]), 2))
+    m2.metric("Source", "OpenWeather /forecast")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat"],
+            mode="lines+markers",
+            name="Forecast",
+            line=dict(color="#ff7f0e"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat_upper"],
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast["ds"],
+            y=forecast["yhat_lower"],
+            mode="lines",
+            fill="tonexty",
+            name="Band",
+            line=dict(width=0),
+            fillcolor="rgba(255, 127, 14, 0.2)",
+        )
+    )
+    fig.update_layout(
+        title=f"{city} — {FORECAST_METRICS.get(metric, metric)} (live)",
+        xaxis_title="Time (UTC)",
+        yaxis_title=FORECAST_METRICS.get(metric, metric),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def render_forecast_tab(events: pd.DataFrame) -> None:
     st.subheader("Short-term forecast")
     st.caption(
@@ -330,13 +393,9 @@ def render_forecast_tab(events: pd.DataFrame) -> None:
         "Refreshes with sidebar auto-refresh."
     )
 
-    if events.empty:
-        st.warning("No historical data available yet. Run the pipeline to collect events.")
-        return
-
     events = enrich_weather_frame(events)
-    cities = sorted(events["city"].dropna().unique().tolist())
-    metric_options = [m for m in FORECAST_METRICS if m in events.columns]
+    cities = sorted(events["city"].dropna().unique().tolist()) if not events.empty else DEFAULT_CITIES
+    metric_options = [m for m in FORECAST_METRICS if events.empty or m in events.columns]
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -349,14 +408,27 @@ def render_forecast_tab(events: pd.DataFrame) -> None:
             key="forecast_metric",
         )
     with col3:
-        method_pref = st.selectbox(
-            "Model",
-            options=list(FORECAST_METHODS.keys()),
-            format_func=lambda k: FORECAST_METHODS[k],
-            key="forecast_method",
-        )
+        if LIVE_MODE:
+            st.caption("Model")
+            st.write("OpenWeather live forecast")
+            method_pref = "auto"
+        else:
+            method_pref = st.selectbox(
+                "Model",
+                options=list(FORECAST_METHODS.keys()),
+                format_func=lambda k: FORECAST_METHODS[k],
+                key="forecast_method",
+            )
     with col4:
         periods = st.slider("Forecast steps", min_value=3, max_value=12, value=6, key="forecast_periods")
+
+    if LIVE_MODE:
+        render_live_forecast_tab(city, metric, periods)
+        return
+
+    if events.empty:
+        st.warning("No historical data available yet. Run the pipeline to collect events.")
+        return
 
     latest_ts = latest_event_timestamp(events)
     version_key = f"{len(events)}_{latest_ts}_{method_pref}"
@@ -495,21 +567,13 @@ def render_aggregates_tab(aggregates: pd.DataFrame) -> None:
         )
 
 
-@st.fragment
-def render_main_content() -> None:
-    events = load_events()
-    aggregates = load_aggregates()
-    alerts = load_alerts()
-
-    all_cities = sorted(events["city"].dropna().unique().tolist()) if not events.empty else DEFAULT_CITIES
-    selected_cities = st.sidebar.multiselect(
-        "Cities",
-        options=all_cities,
-        default=all_cities,
-        key="city_filter",
-    )
-
-    render_sidebar_status(events, alerts, aggregates)
+def render_dashboard_body(
+    selected_cities: list[str],
+    events: pd.DataFrame,
+    aggregates: pd.DataFrame,
+    alerts: pd.DataFrame,
+) -> None:
+    """Main dashboard tabs only — must not use st.sidebar (fragment-safe)."""
 
     events_filtered = filter_by_cities(events, selected_cities)
     alerts_filtered = filter_by_cities(alerts, selected_cities)
@@ -536,8 +600,24 @@ def render_main_content() -> None:
 
 def main() -> None:
     st.title("Weather Intelligence Dashboard")
+    if LIVE_MODE:
+        st.success(
+            "**Live mode** — fetching real-time weather from OpenWeather on each refresh. "
+            "No Kafka or Spark required for this hosted view."
+        )
+        if not OPENWEATHER_API_KEY:
+            st.error("Set `OPENWEATHER_API_KEY` in `.env` or Streamlit Cloud secrets.")
+    elif DEMO_MODE:
+        st.info(
+            "**Demo mode** — bundled sample data only (static values). "
+            "Use `LIVE_MODE=true` for recruiter-facing live data."
+        )
     st.caption(
-        "Live data from Kafka → Spark → Parquet, with rolling-baseline anomaly detection."
+        "Live OpenWeather API → dashboard refresh."
+        if LIVE_MODE
+        else "Live data from Kafka → Spark → Parquet, with rolling-baseline anomaly detection."
+        if not DEMO_MODE
+        else "Sample weather intelligence dashboard for portfolio review."
     )
 
     st.sidebar.header("Controls")
@@ -546,11 +626,31 @@ def main() -> None:
     if st.sidebar.button("Refresh now", use_container_width=True):
         st.rerun()
 
+    try:
+        events, aggregates, alerts = get_dashboard_data()
+    except ValueError as exc:
+        st.error(str(exc))
+        events, aggregates, alerts = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    all_cities = sorted(events["city"].dropna().unique().tolist()) if not events.empty else DEFAULT_CITIES
+    selected_cities = st.sidebar.multiselect(
+        "Cities",
+        options=all_cities,
+        default=all_cities,
+        key="city_filter",
+    )
+    render_sidebar_status(events, alerts, aggregates)
+
     run_every = timedelta(seconds=refresh_seconds) if auto_refresh else None
 
     @st.fragment(run_every=run_every)
     def refreshable_dashboard() -> None:
-        render_main_content()
+        try:
+            live_events, live_aggregates, live_alerts = get_dashboard_data()
+        except ValueError as exc:
+            st.error(str(exc))
+            live_events, live_aggregates, live_alerts = events, aggregates, alerts
+        render_dashboard_body(selected_cities, live_events, live_aggregates, live_alerts)
 
     refreshable_dashboard()
 

@@ -6,6 +6,20 @@ A real-time weather analytics pipeline that ingests live **OpenWeatherMap** data
 
 ---
 
+## Live demo (recruiters — no install)
+
+> **After Streamlit Cloud deploy:** replace the link below with your app URL.
+
+**[Open live dashboard →](https://YOUR-APP-NAME.streamlit.app)** *(coming soon)*
+
+- **Live weather** from OpenWeather API — values update on each auto-refresh
+- No Kafka, Spark, or Java required for the hosted link
+- Set locally: `LIVE_MODE=true streamlit run dashboard.py` (needs `OPENWEATHER_API_KEY`)
+
+**Full pipeline** (Kafka + Spark + Parquet lake): [Docker Compose](#quick-start-with-docker-compose) or [local run](#how-to-run-step-by-step).
+
+---
+
 ## Architecture
 
 ```text
@@ -75,6 +89,9 @@ OpenWeatherMap API
 ├── weather_metrics.py    # Heat index and comfort labels
 ├── city_geo.py           # City coordinates for map view
 ├── config.py             # Paths and environment configuration
+├── sample_data/          # Bundled Parquet for demo / Streamlit Cloud
+├── scripts/
+│   └── generate_sample_data.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -152,6 +169,26 @@ kafka-storage format -t "$KAFKA_CLUSTER_ID" \
 ```
 
 > If you see "already formatted", skip this step.
+
+---
+
+## Deploy live dashboard to Streamlit Cloud
+
+1. Push this repo to GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → select this repo.
+3. Main file path: `dashboard.py`
+4. **Secrets** (required for live data):
+
+```toml
+LIVE_MODE = "true"
+OPENWEATHER_API_KEY = "your_openweather_api_key_here"
+```
+
+5. Deploy. First load may take ~1–2 minutes while dependencies install.
+6. Open the app — weather refreshes every 15–120 seconds (sidebar slider).
+7. Copy the public URL into the **Live demo** section above and your resume.
+
+> `DEMO_MODE=true` is only for offline/static fallback (no API key). Do **not** use it for recruiter links.
 
 ---
 
