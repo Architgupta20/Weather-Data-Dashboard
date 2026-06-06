@@ -128,20 +128,6 @@ def pipeline_status(events: pd.DataFrame, stale_after_seconds: int) -> tuple[str
     return "Healthy", "success"
 
 
-def render_sidebar_filters(all_cities: list[str]) -> list[str]:
-    st.sidebar.markdown("##### Filters")
-    if "city_filter" not in st.session_state:
-        st.session_state.city_filter = all_cities
-    if st.sidebar.button("Reset cities", use_container_width=True):
-        st.session_state.city_filter = all_cities
-        st.rerun()
-    return st.sidebar.multiselect(
-        "Cities",
-        options=all_cities,
-        key="city_filter",
-    )
-
-
 def render_sidebar_refresh() -> tuple[int, bool]:
     st.sidebar.markdown("##### Refresh")
     refresh_seconds = st.sidebar.slider("Interval (sec)", 15, 120, 15, label_visibility="visible")
@@ -222,7 +208,9 @@ def _build_live_comparison_table(snapshot: pd.DataFrame) -> pd.DataFrame:
     )
 
     rows: list[dict] = []
-    for _, row in snapshot.iterrows():
+    clean = snapshot.dropna(subset=["city"]).copy()
+    clean = clean[clean["city"].astype(str).str.strip() != ""]
+    for _, row in clean.iterrows():
         city = row["city"]
         cur_temp = float(row["temperature"])
         cur_hum = float(row["humidity"])
@@ -253,13 +241,24 @@ def _build_live_comparison_table(snapshot: pd.DataFrame) -> pd.DataFrame:
             }
         )
 
-    st.session_state.prev_city_snapshot = snapshot[
+    st.session_state.prev_city_snapshot = clean[
         ["city", "temperature", "humidity", "wind_speed", "event_time"]
     ].copy()
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows).reset_index(drop=True)
 
 
-def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
+def _table_height(row_count: int) -> int:
+    """Fit dataframe height to rows — avoids empty row at the bottom."""
+    if row_count <= 0:
+        return 120
+    return 38 + row_count * 35
+
+
+def render_dashboard_tab(
+    snapshot: pd.DataFrame,
+    recent: pd.DataFrame,
+    available_cities: list[str],
+) -> None:
     if snapshot.empty:
         st.warning("No data for the selected cities.")
         return
@@ -280,8 +279,35 @@ def render_dashboard_tab(snapshot: pd.DataFrame, recent: pd.DataFrame) -> None:
         f"Auto-refreshes every **{refresh_sec}s**. "
         "**Prev** = value at last refresh · **Now** = current value · **Δ** = change since last refresh."
     )
+
+    filter_col, reset_col = st.columns([5, 1])
+    with filter_col:
+        st.multiselect(
+            "Filter cities",
+            options=available_cities,
+            key="table_city_filter",
+            label_visibility="collapsed",
+            placeholder="Filter cities…",
+        )
+    with reset_col:
+        if st.button("All", use_container_width=True, help="Show all cities"):
+            st.session_state.table_city_filter = available_cities
+            st.rerun()
+
+    selected = st.session_state.get("table_city_filter", available_cities)
+    snapshot = snapshot[snapshot["city"].isin(selected)] if selected else snapshot.iloc[0:0]
+
+    if snapshot.empty:
+        st.info("Select at least one city to display readings.")
+        return
+
     comparison = _build_live_comparison_table(snapshot)
-    st.dataframe(comparison, use_container_width=True, hide_index=True, height=420)
+    st.dataframe(
+        comparison,
+        use_container_width=True,
+        hide_index=True,
+        height=_table_height(len(comparison)),
+    )
 
     st.markdown("##### Temperature ranking")
     bar_fig = px.bar(
@@ -642,12 +668,18 @@ def render_status_strip(
 
 
 def render_dashboard_body(
-    selected_cities: list[str],
     events: pd.DataFrame,
     aggregates: pd.DataFrame,
     alerts: pd.DataFrame,
 ) -> None:
     """Main dashboard tabs only — must not use st.sidebar (fragment-safe)."""
+    available_cities = (
+        sorted(events["city"].dropna().unique().tolist()) if not events.empty else DEFAULT_CITIES
+    )
+    if "table_city_filter" not in st.session_state:
+        st.session_state.table_city_filter = available_cities
+
+    selected_cities = st.session_state.get("table_city_filter", available_cities)
     render_status_strip(events, alerts, aggregates)
     st.divider()
 
@@ -663,7 +695,7 @@ def render_dashboard_body(
     )
 
     with tab_dashboard:
-        render_dashboard_tab(snapshot, recent)
+        render_dashboard_tab(snapshot, recent, available_cities)
     with tab_alerts:
         render_alerts_tab(alerts_filtered)
     with tab_aggregates:
@@ -690,8 +722,8 @@ def main() -> None:
     refresh_seconds, auto_refresh = render_sidebar_refresh()
     st.session_state.refresh_seconds = refresh_seconds
 
-    all_cities = DEFAULT_CITIES
-    selected_cities = render_sidebar_filters(all_cities)
+    if "table_city_filter" not in st.session_state:
+        st.session_state.table_city_filter = DEFAULT_CITIES
 
     run_every = timedelta(seconds=refresh_seconds) if auto_refresh else None
 
@@ -704,7 +736,7 @@ def main() -> None:
             live_events = st.session_state.get("event_history", pd.DataFrame())
             live_aggregates = st.session_state.get("live_aggregates", pd.DataFrame())
             live_alerts = st.session_state.get("alert_history", pd.DataFrame())
-        render_dashboard_body(selected_cities, live_events, live_aggregates, live_alerts)
+        render_dashboard_body(live_events, live_aggregates, live_alerts)
 
     refreshable_dashboard()
 
