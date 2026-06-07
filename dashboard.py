@@ -1,4 +1,4 @@
-"""Streamlit dashboard for weather events, aggregates, and anomaly alerts."""
+"""Streamlit UI for the Real-Time Weather Intelligence Platform."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import DEMO_MODE, LIVE_MODE, OPENWEATHER_API_KEY, TRACKED_CITIES
+from config import APP_NAME, APP_TAGLINE, DEMO_MODE, LIVE_MODE, OPENWEATHER_API_KEY, TRACKED_CITIES
 from data_loader import (
     latest_event_timestamp,
     latest_reading_per_city,
@@ -41,7 +41,7 @@ STALE_AFTER_SECONDS = 120
 DEFAULT_CITIES = sorted(TRACKED_CITIES)
 
 st.set_page_config(
-    page_title="Weather Intelligence",
+    page_title=APP_NAME,
     page_icon="🌦️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -62,7 +62,8 @@ def _inject_styles() -> None:
         <style>
         .stApp { background-color: #0B0C0F; }
         .main .block-container { padding-top: 1.25rem; padding-bottom: 2rem; max-width: 100%; }
-        h1, h2, h3, h4, h5 { color: #C5CAD3 !important; font-weight: 600 !important; }
+        h1 { color: #C5CAD3 !important; font-weight: 700 !important; font-size: 1.55rem !important; line-height: 1.3 !important; margin-bottom: 0.15rem !important; }
+        h2, h3, h4, h5 { color: #C5CAD3 !important; font-weight: 600 !important; }
         p, label, span { color: #A8AEB8; }
         [data-testid="stTabs"] { margin-top: 0.5rem; }
         [data-testid="stMetric"] {
@@ -711,7 +712,8 @@ def main() -> None:
 
     header_l, header_r = st.columns([4, 1])
     with header_l:
-        st.title("Weather Intelligence")
+        st.title(APP_NAME)
+        st.caption(APP_TAGLINE)
     with header_r:
         st.markdown(f"##### {_mode_badge()}")
 

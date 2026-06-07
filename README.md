@@ -1,6 +1,6 @@
 # Real-Time Weather Intelligence Platform
 
-A real-time weather analytics pipeline that ingests live **OpenWeatherMap** data through **Apache Kafka**, processes it with **Spark Structured Streaming** into a **Parquet data lake**, detects **anomalies** against rolling baselines, sends **Slack alerts**, and visualizes insights in a **Streamlit** dashboard.
+**Real-Time Weather Intelligence Platform** — a live weather analytics system that ingests **OpenWeatherMap** data through **Apache Kafka**, processes it with **Spark Structured Streaming** into a **Parquet data lake**, detects **anomalies** against rolling baselines, sends **Slack alerts**, and visualizes insights in a **Streamlit** UI.
 
 **Repository:** [github.com/Architgupta20/Weather-Data-Dashboard](https://github.com/Architgupta20/Weather-Data-Dashboard)
 
@@ -10,7 +10,7 @@ A real-time weather analytics pipeline that ingests live **OpenWeatherMap** data
 
 > **After Streamlit Cloud deploy:** replace the link below with your app URL.
 
-**[Open live dashboard →](https://YOUR-APP-NAME.streamlit.app)** *(coming soon)*
+**[Open Real-Time Weather Intelligence Platform →](https://YOUR-APP-NAME.streamlit.app)** *(coming soon)*
 
 - **Live weather** from OpenWeather API — values update on each auto-refresh
 - No Kafka, Spark, or Java required for the hosted link
@@ -54,7 +54,7 @@ OpenWeatherMap API
 - 5-minute windowed aggregates (avg temp, humidity, wind)
 - Rolling-baseline anomaly detection (z-score + absolute thresholds)
 - Optional Slack notifications with cooldown deduplication
-- Streamlit dashboard with **Dashboard**, **Alerts**, **Aggregates**, and **Forecast** tabs
+- Streamlit UI with **Overview**, **Alerts**, **Aggregates**, and **Forecast** tabs
 - Short-horizon forecasting (Prophet when installed, else Holt–Winters ETS or linear trend) with holdout MAE/RMSE
 - **World map** with heat-index coloring and NOAA-style **feels-like** (heat index) in the dashboard table
 
@@ -81,7 +81,7 @@ OpenWeatherMap API
 ```text
 ├── producer.py           # Publishes live weather records to Kafka
 ├── consumer_spark.py     # Spark streaming → Parquet + aggregates + alerts
-├── dashboard.py          # Streamlit UI (events, alerts, aggregates)
+├── dashboard.py          # Real-Time Weather Intelligence Platform UI
 ├── anomaly_detector.py   # Rolling-baseline + threshold anomaly rules
 ├── alerts.py             # Alert persistence + Slack notifications
 ├── data_loader.py        # Parquet loaders for dashboard
@@ -176,17 +176,18 @@ kafka-storage format -t "$KAFKA_CLUSTER_ID" \
 
 1. Push this repo to GitHub.
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → select this repo.
-3. Main file path: `dashboard.py`
-4. **Secrets** (required for live data):
+3. **App name:** `Real-Time Weather Intelligence Platform` (or a short URL slug).
+4. Main file path: `dashboard.py`
+5. **Secrets** (required for live data):
 
 ```toml
 LIVE_MODE = "true"
 OPENWEATHER_API_KEY = "your_openweather_api_key_here"
 ```
 
-5. Deploy. First load may take ~1–2 minutes while dependencies install.
-6. Open the app — weather refreshes every 15–120 seconds (sidebar slider).
-7. Copy the public URL into the **Live demo** section above and your resume.
+6. Deploy. First load may take ~1–2 minutes while dependencies install.
+7. Open the app — weather refreshes every 15–120 seconds (sidebar slider).
+8. Copy the public URL into the **Live demo** section above and your resume.
 
 > `DEMO_MODE=true` is only for offline/static fallback (no API key). Do **not** use it for recruiter links.
 
@@ -306,7 +307,7 @@ Open the URL printed in the terminal (usually **http://localhost:8501**).
 
 | Tab | Content |
 |-----|---------|
-| **Dashboard** | Latest weather batch + charts |
+| **Overview** | Live city table, map, and temperature charts |
 | **Alerts** | Detected anomalies |
 | **5-min Aggregates** | Spark windowed averages |
 | **Forecast** | Next-interval forecast + confidence band and backtest metrics |

@@ -7,6 +7,9 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+APP_NAME = "Real-Time Weather Intelligence Platform"
+APP_TAGLINE = "Live weather analytics, anomaly detection, and forecasting"
+
 # Dashboard data source (priority: LIVE_MODE > DEMO_MODE > local Parquet pipeline)
 LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() in ("1", "true", "yes")
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("1", "true", "yes")
@@ -47,7 +50,7 @@ MIN_BASELINE_SAMPLES = int(os.getenv("MIN_BASELINE_SAMPLES", "5"))
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "3600"))
 
 # Spark
-SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "WeatherStructuredStreaming")
+SPARK_APP_NAME = os.getenv("SPARK_APP_NAME", "RealTimeWeatherIntelligencePlatform")
 WINDOW_DURATION = os.getenv("WINDOW_DURATION", "5 minutes")
 WATERMARK_DELAY = os.getenv("WATERMARK_DELAY", "10 minutes")
 TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "30 seconds")
