@@ -8,9 +8,7 @@
 
 ## Live demo (recruiters — no install)
 
-> **After Streamlit Cloud deploy:** replace the link below with your app URL.
-
-**[Open Real-Time Weather Intelligence Platform →](https://YOUR-APP-NAME.streamlit.app)** *(coming soon)*
+**[Open Real-Time Weather Intelligence Platform →](https://real-time-weather-intelligence-platform-raxusapsndhsjpqsq57fzs.streamlit.app/)**
 
 - **Live weather** from OpenWeather API — values update on each auto-refresh
 - No Kafka, Spark, or Java required for the hosted link
