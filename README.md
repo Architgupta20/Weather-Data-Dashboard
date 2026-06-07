@@ -2,7 +2,7 @@
 
 **Real-Time Weather Intelligence Platform** — a live weather analytics system that ingests **OpenWeatherMap** data through **Apache Kafka**, processes it with **Spark Structured Streaming** into a **Parquet data lake**, detects **anomalies** against rolling baselines, sends **Slack alerts**, and visualizes insights in a **Streamlit** UI.
 
-**Repository:** [github.com/Architgupta20/Weather-Data-Dashboard](https://github.com/Architgupta20/Weather-Data-Dashboard)
+**Repository:** [github.com/Architgupta20/Real-Time-Weather-Intelligence-Platform](https://github.com/Architgupta20/Real-Time-Weather-Intelligence-Platform)
 
 ---
 
@@ -130,8 +130,8 @@ brew install kafka openjdk@11
 ### 1. Clone and install Python dependencies
 
 ```bash
-git clone https://github.com/Architgupta20/Weather-Data-Dashboard.git
-cd Weather-Data-Dashboard
+git clone https://github.com/Architgupta20/Real-Time-Weather-Intelligence-Platform.git
+cd Real-Time-Weather-Intelligence-Platform
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -226,7 +226,7 @@ Notes:
 You need **4 terminals**. Activate the venv in each:
 
 ```bash
-cd Weather-Data-Dashboard   # or your clone path
+cd Real-Time-Weather-Intelligence-Platform   # or your clone path
 source .venv/bin/activate
 ```
 
