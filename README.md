@@ -87,9 +87,8 @@ OpenWeatherMap API
 ├── weather_metrics.py    # Heat index and comfort labels
 ├── city_geo.py           # City coordinates for map view
 ├── config.py             # Paths and environment configuration
-├── sample_data/          # Bundled Parquet for demo / Streamlit Cloud
 ├── scripts/
-│   └── generate_sample_data.py
+│   └── generate_sample_data.py   # Optional: builds local sample_data/ for DEMO_MODE
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -98,7 +97,7 @@ OpenWeatherMap API
 └── README.md
 ```
 
-Runtime data is written under `data/` (gitignored).
+Runtime data is written under `data/` (gitignored). For offline `DEMO_MODE`, generate local sample data with `python scripts/generate_sample_data.py`.
 
 ---
 
