@@ -87,14 +87,6 @@ def _apply_plotly_theme(fig: go.Figure) -> go.Figure:
     return fig
 
 
-def _mode_badge() -> str:
-    if LIVE_MODE:
-        return "🟢 Live · OpenWeather"
-    if DEMO_MODE:
-        return "📦 Demo · sample data"
-    return "⚡ Pipeline · Kafka + Spark"
-
-
 def filter_by_cities(df: pd.DataFrame, cities: list[str], city_col: str = "city") -> pd.DataFrame:
     if df.empty or not cities or city_col not in df.columns:
         return df
@@ -710,12 +702,8 @@ def render_dashboard_body(
 def main() -> None:
     _inject_styles()
 
-    header_l, header_r = st.columns([4, 1])
-    with header_l:
-        st.title(APP_NAME)
-        st.caption(APP_TAGLINE)
-    with header_r:
-        st.markdown(f"##### {_mode_badge()}")
+    st.title(APP_NAME)
+    st.caption(APP_TAGLINE)
 
     if LIVE_MODE and not OPENWEATHER_API_KEY:
         st.error("Add `OPENWEATHER_API_KEY` to Streamlit secrets or `.env`.")
