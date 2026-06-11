@@ -704,6 +704,7 @@ def main() -> None:
 
     st.title(APP_NAME)
     st.caption(APP_TAGLINE)
+    st.divider()
 
     if LIVE_MODE and not OPENWEATHER_API_KEY:
         st.error("Add `OPENWEATHER_API_KEY` to Streamlit secrets or `.env`.")
