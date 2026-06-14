@@ -74,6 +74,14 @@ def _inject_styles() -> None:
         }
         [data-testid="stMetricValue"] { color: #D0D5DD !important; font-size: 1.35rem !important; }
         [data-testid="stDataFrame"] { border: 1px solid #252830; border-radius: 8px; }
+        [data-testid="stHorizontalBlock"] div[data-testid="stMetricLabel"] p {
+            color: #8B919C !important;
+            font-size: 0.8rem !important;
+        }
+        hr { border-color: #252830 !important; margin: 0.75rem 0 !important; }
+        section[data-testid="stSidebar"] h3, section[data-testid="stSidebar"] h5 {
+            color: #C5CAD3 !important;
+        }
         div[data-baseweb="tab"] { color: #9AA1AD; }
         div[data-baseweb="tab-highlight"] { background-color: #6B8CAE !important; }
         </style>
@@ -107,7 +115,7 @@ def pipeline_status(events: pd.DataFrame, stale_after_seconds: int) -> tuple[str
             return "Live mode — API key missing", "error"
         if events.empty:
             return "Live mode — fetch failed", "error"
-        return "Live (OpenWeather API)", "success"
+        return "Live", "success"
     if DEMO_MODE:
         return "Demo mode (sample data)", "success"
     if events.empty:
@@ -259,13 +267,15 @@ def render_dashboard_tab(
     snapshot = enrich_weather_frame(snapshot)
     recent = enrich_weather_frame(recent)
     hottest = snapshot.loc[snapshot["temperature"].idxmax()]
+    coolest = snapshot.loc[snapshot["temperature"].idxmin()]
     refresh_sec = st.session_state.get("refresh_seconds", 15)
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Cities", len(snapshot))
-    k2.metric("Avg temp", f"{snapshot['temperature'].mean():.1f}°C")
-    k3.metric("Hottest", f"{hottest['city']}", f"{hottest['temperature']:.1f}°C")
-    k4.metric("Avg humidity", f"{snapshot['humidity'].mean():.0f}%")
+    with st.container(border=True):
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Cities", len(snapshot))
+        k2.metric("Avg temp", f"{snapshot['temperature'].mean():.1f}°C")
+        k3.metric("Hottest", hottest["city"], f"{hottest['temperature']:.1f}°C")
+        k4.metric("Coolest", coolest["city"], f"{coolest['temperature']:.1f}°C")
 
     st.markdown("##### Live city readings")
     st.caption(
@@ -654,7 +664,7 @@ def render_status_strip(
     status_label, _ = pipeline_status(events, STALE_AFTER_SECONDS)
     latest = latest_event_timestamp(events)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Pipeline", status_label)
+    c1.metric("Status", status_label)
     c2.metric("Readings", len(events))
     c3.metric("Alerts", len(alerts))
     c4.metric("Updated", format_event_time(latest).replace(" UTC", "") if latest else "—")
@@ -696,7 +706,7 @@ def render_dashboard_body(
     with tab_forecast:
         render_forecast_tab(events_filtered)
 
-    st.caption(f"Refreshed {format_event_time(datetime.now(timezone.utc))}")
+    st.caption(f"Last updated · {format_event_time(datetime.now(timezone.utc))}")
 
 
 def main() -> None:
@@ -709,7 +719,7 @@ def main() -> None:
     if LIVE_MODE and not OPENWEATHER_API_KEY:
         st.error("Add `OPENWEATHER_API_KEY` to Streamlit secrets or `.env`.")
 
-    st.sidebar.markdown("### Settings")
+    st.sidebar.markdown("##### Controls")
     refresh_seconds, auto_refresh = render_sidebar_refresh()
     st.session_state.refresh_seconds = refresh_seconds
 
